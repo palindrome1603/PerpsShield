@@ -132,6 +132,55 @@ export function createPerpShieldServer(state = createRuntimeState()) {
     }
   };
 
+  const applyAccountPayload = (accountsRes) => {
+    const list = Array.isArray(accountsRes?.data)
+      ? accountsRes.data
+      : Array.isArray(accountsRes?.accounts)
+        ? accountsRes.accounts
+        : Array.isArray(accountsRes)
+          ? accountsRes
+          : [];
+    const first = list[0];
+    if (!first) return;
+    state.connectedAccount = `${first.name || first.plan || 'MyFundedPerps'} (${first.id || 'Sandbox'})`;
+    const eq = Number(first.equity ?? first.balance);
+    if (!Number.isNaN(eq) && eq > 0) state.account.equity = eq;
+    const sod = Number(first.start_of_day_equity ?? first.startOfDayEquity ?? eq);
+    if (!Number.isNaN(sod) && sod > 0) state.account.startOfDayEquity = sod;
+    const lf = Number(first.loss_floor ?? first.lossFloor ?? first.max_loss_floor);
+    if (!Number.isNaN(lf) && lf >= 0) state.account.lossFloor = lf;
+    const dll = Number(first.daily_loss_limit ?? first.dailyLossLimit);
+    if (!Number.isNaN(dll) && dll > 0) state.account.dailyLossLimit = dll;
+  };
+
+  let stopWs = null;
+  if (state.apiKey) {
+    const client = new MyFundedPerpsClient({
+      apiKey: state.apiKey,
+      baseUrl: process.env.FP_BASE_URL,
+      wsUrl: process.env.FP_WS_URL,
+    });
+    client
+      .getAccounts()
+      .then((res) => {
+        applyAccountPayload(res);
+        return broadcastState();
+      })
+      .catch((err) => {
+        console.warn('[PerpShield] Initial account sync warning:', err.message);
+      });
+
+    stopWs = client.connectAccountStream(
+      (event) => {
+        if (event?.equity) state.account.equity = Number(event.equity);
+        broadcastState().catch(() => {});
+      },
+      (err) => {
+        console.warn('[PerpShield] WS stream notice:', err.message);
+      }
+    );
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
 
@@ -228,7 +277,10 @@ export function createPerpShieldServer(state = createRuntimeState()) {
   const ticker = setInterval(() => {
     broadcastState().catch(() => {});
   }, 1000);
-  server.on('close', () => clearInterval(ticker));
+  server.on('close', () => {
+    clearInterval(ticker);
+    stopWs?.();
+  });
 
   return server;
 }
