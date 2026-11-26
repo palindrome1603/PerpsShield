@@ -1,0 +1,28 @@
+{
+  "name": "perpshield",
+  "version": "0.1.0",
+  "description": "Real-time Funded Perp Execution Firewall — News Blackout Radar, Cross-Asset Correlation Guard, True Net-Equity Buffer, and MCP Tilt Post-Mortem for MyFundedPerps.",
+  "type": "module",
+  "main": "src/cli.mjs",
+  "bin": {
+    "perpshield": "./src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs watch",
+    "demo": "node src/cli.mjs demo",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "keywords": [
+    "myfundedperps",
+    "myfundedfutures",
+    "perpetuals",
+    "prop-firm",
+    "risk-management",
+    "mcp",
+    "websocket"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

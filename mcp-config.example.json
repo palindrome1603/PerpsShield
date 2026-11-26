@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "myfundedperps-readonly": {
+      "url": "https://mcp.myfundedperpetuals.com",
+      "transport": "oauth",
+      "scope": "read-only",
+      "notes": "Connect PerpShield's Tilt & Execution Post-Mortem prompts to your MyFundedPerps account via OAuth."
+    }
+  }
+}
