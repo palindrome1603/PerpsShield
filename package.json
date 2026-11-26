@@ -10,6 +10,8 @@
   "scripts": {
     "start": "node src/cli.mjs watch",
     "demo": "node src/cli.mjs demo",
+    "server": "node src/server.mjs",
+    "web:build": "npm --prefix web run build",
     "test": "node --test tests/*.test.mjs"
   },
   "keywords": [

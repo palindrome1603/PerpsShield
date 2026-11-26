@@ -81,3 +81,44 @@ test('REST client reuses Idempotency-Key and honors Retry-After on 429', async (
   assert.equal(seenKeys[0], seenKeys[1]);
   assert.equal(parseRetryAfterMs('2'), 2000);
 });
+
+
+import { normalizeMacroEvents } from '../src/news-radar.mjs';
+import { buildDashboardSnapshot, createPerpShieldServer, createRuntimeState } from '../src/server.mjs';
+
+test('normalizeMacroEvents filters high-impact USD/EUR macro prints', () => {
+  const events = normalizeMacroEvents([
+    { title: 'CPI m/m', country: 'USD', impact: 'High', date: '2026-11-26T13:30:00Z' },
+    { title: 'Minor Speech', country: 'JPY', impact: 'Low', date: '2026-11-26T14:00:00Z' },
+  ]);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].title, 'USD CPI m/m');
+});
+
+test('server /api/state and /api/orders/cancel-flagged work end-to-end', async () => {
+  const state = createRuntimeState();
+  const snapshot = await buildDashboardSnapshot(state, { useLiveCalendar: false });
+  assert.equal(snapshot.restingOrders.length, 2);
+
+  const server = createPerpShieldServer(state);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const res1 = await fetch(`http://127.0.0.1:${port}/api/state`);
+    assert.equal(res1.status, 200);
+    const body1 = await res1.json();
+    assert.equal(body1.restingOrders.length, 2);
+
+    const res2 = await fetch(`http://127.0.0.1:${port}/api/orders/cancel-flagged`, { method: 'POST' });
+    assert.equal(res2.status, 200);
+    const body2 = await res2.json();
+    assert.equal(body2.cancelledCount, 2);
+
+    const res3 = await fetch(`http://127.0.0.1:${port}/api/state`);
+    const body3 = await res3.json();
+    assert.equal(body3.restingOrders.length, 0);
+  } finally {
+    server.close();
+  }
+});

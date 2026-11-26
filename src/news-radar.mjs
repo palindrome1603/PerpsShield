@@ -12,6 +12,10 @@ export const NEWS_WINDOWS_MS = {
   LOCK_AFTER: 2 * 60 * 1000,
 };
 
+const CALENDAR_URL = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
+let cachedCalendar = { fetchedAt: 0, events: null };
+const CACHE_TTL_MS = 15 * 60 * 1000;
+
 /**
  * Evaluate the blackout status of a macro event relative to `nowMs`.
  * @param {{ title: string, impact: string, timestampUtc: string }} event
@@ -30,22 +34,18 @@ export function evaluateEventWindow(event, nowMs = Date.now()) {
   const deltaMs = eventMs - nowMs;
   const minutesToEvent = Math.round((deltaMs / 60000) * 10) / 10;
 
-  // After event within +2m cooldown
   if (deltaMs < 0 && Math.abs(deltaMs) <= NEWS_WINDOWS_MS.LOCK_AFTER) {
     return { status: 'HARD_LOCK', minutesToEvent, event };
   }
 
-  // Within -2m before event
   if (deltaMs >= 0 && deltaMs <= NEWS_WINDOWS_MS.HARD_LOCK_BEFORE) {
     return { status: 'HARD_LOCK', minutesToEvent, event };
   }
 
-  // Within -10m to -2m before event
   if (deltaMs > NEWS_WINDOWS_MS.HARD_LOCK_BEFORE && deltaMs <= NEWS_WINDOWS_MS.ENTRY_LOCK_BEFORE) {
     return { status: 'ENTRY_LOCK', minutesToEvent, event };
   }
 
-  // Within -15m to -10m pre-flight warning
   if (deltaMs > NEWS_WINDOWS_MS.ENTRY_LOCK_BEFORE && deltaMs <= NEWS_WINDOWS_MS.PREFLIGHT) {
     return { status: 'PREFLIGHT_WARN', minutesToEvent, event };
   }
@@ -72,6 +72,49 @@ export function getActiveNewsStatus(events, nowMs = Date.now()) {
 }
 
 /**
+ * Normalize raw ForexFactory-style JSON into PerpShield high-impact macro events.
+ * @param {Array<any>} raw
+ */
+export function normalizeMacroEvents(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item) => item?.impact === 'High' && (item?.country === 'USD' || item?.country === 'EUR'))
+    .map((item) => ({
+      title: `${item.country} ${item.title}`,
+      impact: 'high',
+      country: item.country,
+      timestampUtc: new Date(item.date).toISOString(),
+    }))
+    .filter((item) => !Number.isNaN(Date.parse(item.timestampUtc)));
+}
+
+/**
+ * Fetch live weekly high-impact macro calendar (cached for 15 minutes),
+ * falling back to demo events if offline or rate-limited.
+ */
+export async function fetchLiveMacroEvents(fetchImpl = fetch) {
+  const now = Date.now();
+  if (cachedCalendar.events && now - cachedCalendar.fetchedAt < CACHE_TTL_MS) {
+    return cachedCalendar.events;
+  }
+
+  try {
+    const res = await fetchImpl(CALENDAR_URL, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error(`Calendar HTTP ${res.status}`);
+    const raw = await res.json();
+    const events = normalizeMacroEvents(raw);
+    if (events.length > 0) {
+      cachedCalendar = { fetchedAt: now, events };
+      return events;
+    }
+  } catch {
+    // Fallback cleanly to deterministic demo events when offline
+  }
+
+  return getDemoMacroEvents(now);
+}
+
+/**
  * Sample high-impact events for local demo/dry-run mode.
  * @param {number} [nowMs]
  */
@@ -80,12 +123,20 @@ export function getDemoMacroEvents(nowMs = Date.now()) {
     {
       title: 'US CPI (MoM & YoY)',
       impact: 'high',
-      timestampUtc: new Date(nowMs + 9 * 60 * 1000).toISOString(),
+      country: 'USD',
+      timestampUtc: new Date(nowMs + 9 * 60 * 1000 + 14 * 1000).toISOString(),
     },
     {
       title: 'FOMC Rate Decision',
       impact: 'high',
+      country: 'USD',
       timestampUtc: new Date(nowMs + 4 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      title: 'US Initial Jobless Claims',
+      impact: 'high',
+      country: 'USD',
+      timestampUtc: new Date(nowMs + 26 * 60 * 60 * 1000).toISOString(),
     },
   ];
 }
